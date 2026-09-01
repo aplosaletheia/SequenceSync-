@@ -1,6 +1,8 @@
-Instead of taking a wav input, the clip will be taken from audio paying by the audio card using miniaudio library.
+Instead of taking a wav input for r (recommendation) mode, the clip will be taken from audio paying by the audio card using miniaudio library.
 
   there will be a start recording and then an end recording option through the terminal *maybe a GUI in the future*
+
+Add to database will still be via wav files or maybe .mp3.
 
 
 DFT will be replaced by a hand written FFT algorithm.
