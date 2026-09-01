@@ -1,4 +1,5 @@
-//ONLY STD LIBRARIES
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
 
 #include <assert.h>
 #include <string.h>
