@@ -1,5 +1,18 @@
 #pragma once
 
+#include <stdio.h>
+
+// Detect Windows
+#ifdef _WIN32
+    #include <windows.h>
+    #define custom_sleep(ms) Sleep(ms)
+// Detect Linux/macOS
+#else
+    #include <unistd.h>
+    #define custom_sleep(ms) usleep((ms) * 1000)
+#endif
+
+#include <stdio.h>
 #define MINIAUDIO_IMPLEMENTATION
 #include "main.h"
 #include "config.h"
@@ -13,20 +26,9 @@
 
 int main()
 {
-    hashIndex_s hashIndex;
-    hashIndex.numBuckets = NUM_BUCKETS;
-    initHashTable(&hashIndex);
-    printf("booting up database...\n");
-    audioCat_s catalogue = bootDatabase(&hashIndex);
-    size_t currId = catalogue.numIds - 1;
-
     input_s input = getInput();
-    printf("decoding .wav file...\n");
-    wavInfo_s wavInfo = wavDecoder(input.wavFile); //the samples will be in heap
-
+    
     audioInfo_s audioInfo;
-    strcpy(audioInfo.name, input.name);
-    audioInfo.audioId = currId + 1;
 
     printf("breaking down the audio...");
     audioInfo.ampBandFull = fullAmpBand(&wavInfo); //dont remember why I passed the address
@@ -37,6 +39,11 @@ int main()
     //add to database
     if (input.command == 'a')
     {
+        printf("decoding .wav file...\n");
+        wavInfo_s wavInfo = wavDecoder(input.wavFile); //the samples will be in heap
+
+        strcpy(audioInfo.name, input.name);
+        
         printf("adding to data base...\n");
         if (addToDatabase(audioInfo) == 0)
         {
@@ -46,6 +53,25 @@ int main()
     //give recommendations
     else if (input.command == 'r')
     {
+        hashIndex_s hashIndex;
+        hashIndex.numBuckets = NUM_BUCKETS;
+        initHashTable(&hashIndex);
+        printf("booting up database...\n");
+        audioCat_s catalogue = bootDatabase(&hashIndex);
+
+        //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user 
+        printf("recording begins in")
+        for(size_t i = 3; i > 0; i--)
+        {
+            printf("...%zus", i);
+            custom_sleep(1000);
+        }
+        printf("\n**To stop recording, enter 'STOP' in the terminal**\n");
+        
+        //run this on another thread
+        //use the main thread to keep access to the terminal for stop recording command
+        startRecording();
+        
         clipHashVals_s clipHashVals;
         hashClip(&clipHashVals, audioInfo.ampBandclubbed);
         audioSet_s filteredAudios = {0, NULL};
@@ -60,6 +86,12 @@ int main()
 }
 
 //function definitions
+
+clipSamples_s startRecording()
+{
+    printf("recording...");
+}
+
 
 int appentToCat(audioCat_s *audioCat, audioInfo_s audioinfo)
 {
@@ -138,14 +170,33 @@ int initHashTable(hashIndex_s* hashIndex)
 input_s getInput()
 {
     input_s result;
-    printf("file name please (don't forget the .wav) MAX NAME LENGTH IS 100 (inclusive of the .wav (4 char))\n");
-    scanf("%s", result.name);
-    printf("command -\n");
-    scanf(" %c", &result.command);
-    result.wavFile = fopen(result.name, "rb");
-    if (result.wavFile == NULL)
+    printf("a - add to database, r - get recommendations\n");
+    result.command = getchar();
+    while (getchar() != '\n') 
+    {}
+    if (result.command == 'r')
     {
-        printf("failed to open file\n");
+        result.wavFile = NULL;
+        
+    }
+    else if(result.command == 'a')
+    {
+        printf("please enter file name (ignore the .wav) max leng - 100char\n");
+        scanf("\n %s", result.name);
+        char fileName[MAX_NAME_SIZE + 4 + 1] = {0};
+        memcpy(fileName, result.name, strlen(result.name));
+        //can add option for various types of files (if I get the decoder for them)
+        strcat(fileName, ".wav");
+        result.wavFile = fopen(fileName, "rb");
+        if (result.wavFile == NULL)
+        {
+            printf("failed to open file\n");
+            exit(1);
+        }
+    }
+    else
+    {
+        printf("invalid command\n");
         exit(1);
     }
     return result;

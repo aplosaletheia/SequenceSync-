@@ -2,12 +2,13 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "config.h"
 #include "miniaudio.h"
 
 typedef struct
 {
     FILE* wavFile;
-    char name[100];
+    char name[MAX_NAME_SIZE + 1]; // '\0'
     char command; // either add to database (a) or get recommendations (r)
 } input_s;
 
@@ -91,3 +92,14 @@ int appendHashEntry(entry_s**, entry_s*);
 int hashClip(clipHashVals_s*, ampBand_s);
 int filter1(audioSet_s*, hashIndex_s, clipHashVals_s);
 int filter2(audioSet_s*, audioCat_s, audioInfo_s);
+
+//miniaudio stuff
+
+typedef struct
+{
+    size_t count;
+    size_t reserved;
+    MA_SAMPLE_TYPE* data;
+} clipSamples_s
+
+clipSamples_s startRecording(); //arg depends on miniaudio

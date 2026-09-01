@@ -7,3 +7,9 @@
 #define SCATTER 10
 #define OFFSET 30
 #define FILTER1_MIN_VOTES 3
+#define MAX_NAME_SIZE 100
+
+// for miniaudio capture
+#define MA_SAMPLE_RATE 44100 //hz
+#define MA_CHANNELS 2
+#define MA_SAMPLE_TYPE int16_t
