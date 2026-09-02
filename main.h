@@ -16,16 +16,12 @@ typedef struct
 {
     //directly from file header
 
-    unsigned int channels;
-    unsigned int sampleRate;
-    unsigned int byteRate;
-    unsigned int dataSize; //in bytes
-
-    //additional info
-    unsigned int sampleCount;
+    size_t channels;
+    size_t sampleRate;
+    size_t sampleCount;
     float duration;
-    int16_t* samples;
-} wavInfo_s;
+    float* samples;
+} audioInfo_s;
 
 typedef struct
 {
@@ -42,12 +38,12 @@ typedef struct
     ampBand_s ampBandclubbed; //flag for stop comparing is 0
     ampBand_s ampBandFilter2;
     ampBand_s ampBandFull; // ignore the last column
-} audioInfo_s;
+} audioData_s;
 
 typedef struct
 {
     size_t numIds;
-    audioInfo_s* audioInfos;
+    audioData_s* audioDatas;
     size_t reserved;
 } audioCat_s;
 
@@ -82,18 +78,22 @@ typedef struct
 int initHashTable(hashIndex_s*);
 audioCat_s bootDatabase(hashIndex_s*);
 input_s getInput(); //ND
-wavInfo_s wavDecoder(FILE*);
+audioInfo_s wavDecoder(FILE*);
 void getSamples(FILE*, int16_t*);
-ampBand_s fullAmpBand(const wavInfo_s*);
+ampBand_s fullAmpBand(const audioInfo_s*);
 ampBand_s clubAmpBand(ampBand_s);
-int addToDatabase(audioInfo_s);
-int addToHashTable(audioInfo_s, hashIndex_s);
+int addToDatabase(audioData_s);
+int addToHashTable(audioData_s, hashIndex_s);
 int appendHashEntry(entry_s**, entry_s*);
 int hashClip(clipHashVals_s*, ampBand_s);
 int filter1(audioSet_s*, hashIndex_s, clipHashVals_s);
-int filter2(audioSet_s*, audioCat_s, audioInfo_s);
+int filter2(audioSet_s*, audioCat_s, audioData_s);
+//miniaudio related functions
+int initAudioCaptureDevice(ma_device*);
+void audioReceiverCallback(ma_device* , void* , const void* , ma_uint32 );
 
-//miniaudio stuff
+
+
 
 typedef struct
 {

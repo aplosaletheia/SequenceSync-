@@ -1,5 +1,4 @@
 #include <Windows.h>
-#include <profileapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -11,6 +10,19 @@
 #include "main.h"
 #include "config.h"
 
+clipSamples_s clipSamples = {0, 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000, 0};
+
+int appendToClipSamples(clipSamples_s* clipSamples, MA_SAMPLE_TYPE* vals, size_t numVals)
+{
+    if (clipSamples->reserved + MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000 <= clipSamples->count)
+    {
+        clipSamples->reserved += 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000;
+        clipSamples->data = realloc(clipSamples->data, clipSamples->reserved*sizeof(*clipSamples->data));
+    }
+    memcpy(clipSamples->data, vals, numVals);
+    clipSamples->count += 1;
+}
+
 
 int main()
 {
@@ -20,22 +32,22 @@ int main()
 
     input_s input = getInput();
 
-    audioInfo_s audioInfo;
+    audioData_s audioData;
 
     //add to database
     if (input.command == 'a')
     {
         printf("decoding .wav file...");
         QueryPerformanceCounter(&start);
-        wavInfo_s wavInfo = wavDecoder(input.wavFile); //will alloc memory on heap
+        audioInfo_s audioInfo = wavDecoder(input.wavFile); //will alloc memory on heap
         QueryPerformanceCounter(&end);
         printf("done (%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
 
-        strcpy(audioInfo.name, input.name);
+        strcpy(audioData.name, input.name);
 
         printf("adding to database...");
         QueryPerformanceCounter(&start);
-        if (addToDatabase(audioInfo) == 0)
+        if (addToDatabase(audioData) == 0)
         {
             printf("done");
         }
@@ -51,49 +63,83 @@ int main()
         printf("booting up database...\n");
         audioCat_s catalogue = bootDatabase(&hashIndex);
 
+        audioInfo_s audioInfo = {MA_CHANNELS, MA_SAMPLE_RATE, 0, 0, 0};
+        
+        //setting up audio capture device
+        ma_device audioCaptureDevice;
+        clipSamples.data = realloc(clipSamples.data, clipSamples.reserved*sizeof(*clipSamples.data));
+        audioInfo.samples = clipSamples.data;
+        initAudioCaptureDevice(&audioCaptureDevice);
+        
         //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user
+        printf("\n**To stop recording, enter 'e' in the terminal**\n");
         printf("recording begins in");
         for(size_t i = 3; i > 0; i--)
         {
             printf("...%zus", i);
             Sleep(1000);
         }
-        printf("\n**To stop recording, enter 'e' in the terminal**\n");
+        ma_device_start(&audioCaptureDevice);
+        printf("\nrecording...");
+        if (getchar() == 'e')
+        {
+            ma_device_uninit(&audioCaptureDevice);
+        }
+        printf("done\n");
 
-        //run this on another thread
-        //use the main thread to keep access to the terminal for stop recording command
-        startRecording();
-
+        audioData_s clipData;
+        clipData.ampBandFull = fullAmpBand(&audioInfo);
+        clipData.ampBandclubbed = clubAmpBand(clipData.ampBandFull);
+        
         clipHashVals_s clipHashVals;
-        hashClip(&clipHashVals, audioInfo.ampBandclubbed);
+        hashClip(&clipHashVals, clipData.ampBandclubbed);
+        
         audioSet_s filteredAudios = {0, NULL};
 
-        filter1(&filteredAudios, hashIndex, clipHashVals); //passing address so that i can change count..This will need to access the database
-        filter2(&filteredAudios, catalogue, audioInfo);
+        filter1(&filteredAudios, hashIndex, clipHashVals);
         for (size_t i = 0; i < filteredAudios.numIds; i++)
         {
-            printf("%s, ", catalogue.audioInfos[filteredAudios.audioIds[i]].name);
+            printf("%s, ", catalogue.audioDatas[filteredAudios.audioIds[i]].name);
         }
     }
 
 }
 
+
+
 //function definitions
 
-clipSamples_s startRecording()
+//called from a different thread whenevr sufficent data conditions are met
+void audioReceiverCallback(ma_device* pDevice, void* pOutput, const void* pInput /*data from the capture card*/, ma_uint32 frameCount)
 {
-    printf("recording...");
+    appendToClipSamples(&clipSamples, (float*)pInput, frameCount);
 }
 
 
-int appentToCat(audioCat_s *audioCat, audioInfo_s audioinfo)
+int initAudioCaptureDevice(ma_device* pDevice)
+{
+    ma_device_config config = ma_device_config_init(ma_device_type_loopback);
+    config.capture.format = ma_format_f32; //float
+    config.capture.channels = 2;
+    config.sampleRate = MA_SAMPLE_RATE;
+    config.dataCallback = audioReceiverCallback;
+    config.periodSizeInMilliseconds = SHORT_TIME_PERIOD_MS;
+
+    if (ma_device_init(NULL, &config, pDevice) != MA_SUCCESS) 
+    {
+        return -1;  // Failed to initialize the device.
+    }
+}
+
+
+int appentToCat(audioCat_s *audioCat, audioData_s audioData)
 {
     if (audioCat->numIds < audioCat->reserved)
     {
         audioCat->reserved *= 2;
-        audioCat->audioInfos = realloc(audioCat->audioInfos, audioCat->reserved*sizeof(audioInfo_s));
+        audioCat->audioDatas = realloc(audioCat->audioDatas, audioCat->reserved*sizeof(audioData_s));
     }
-    audioCat->audioInfos[audioCat->numIds] = audioinfo;
+    audioCat->audioDatas[audioCat->numIds] = audioData;
     audioCat->numIds++;
 }
 
@@ -102,7 +148,7 @@ audioCat_s bootDatabase(hashIndex_s* hashIndex)
     audioCat_s catalogue;
     catalogue.numIds = 0;
     catalogue.reserved = 100;
-    catalogue.audioInfos = malloc(catalogue.reserved*sizeof(*catalogue.audioInfos));
+    catalogue.audioDatas = malloc(catalogue.reserved*sizeof(*catalogue.audioDatas));
 
     size_t maxId = 0;
     FILE* bin = fopen("audio.txt", "rb");
@@ -123,31 +169,31 @@ audioCat_s bootDatabase(hashIndex_s* hashIndex)
 
     while (1)
     {
-        audioInfo_s audioInfo;
+        audioData_s audioData;
 
-        if (fread(&audioInfo.audioId, sizeof(audioInfo.audioId), 1, bin) != 1) break; // clean EOF
-        if (fread(audioInfo.name, sizeof(char), sizeof(audioInfo.name), bin) != sizeof(audioInfo.name)) break;
+        if (fread(&audioData.audioId, sizeof(audioData.audioId), 1, bin) != 1) break; // clean EOF
+        if (fread(audioData.name, sizeof(char), sizeof(audioData.name), bin) != sizeof(audioData.name)) break;
 
-        if (fread(&audioInfo.ampBandclubbed.rows, sizeof(size_t), 1, bin) != 1) break;
-        if (fread(&audioInfo.ampBandclubbed.cols, sizeof(size_t), 1, bin) != 1) break;
-        size_t clubbedCount = audioInfo.ampBandclubbed.rows * audioInfo.ampBandclubbed.cols;
-        audioInfo.ampBandclubbed.data = malloc(clubbedCount * sizeof(int));
-        if (fread(audioInfo.ampBandclubbed.data, sizeof(int), clubbedCount, bin) != clubbedCount) break;
+        if (fread(&audioData.ampBandclubbed.rows, sizeof(size_t), 1, bin) != 1) break;
+        if (fread(&audioData.ampBandclubbed.cols, sizeof(size_t), 1, bin) != 1) break;
+        size_t clubbedCount = audioData.ampBandclubbed.rows * audioData.ampBandclubbed.cols;
+        audioData.ampBandclubbed.data = malloc(clubbedCount * sizeof(int));
+        if (fread(audioData.ampBandclubbed.data, sizeof(int), clubbedCount, bin) != clubbedCount) break;
 
-        if (fread(&audioInfo.ampBandFull.rows, sizeof(size_t), 1, bin) != 1) break;
-        if (fread(&audioInfo.ampBandFull.cols, sizeof(size_t), 1, bin) != 1) break;
-        size_t fullCount = audioInfo.ampBandFull.rows * audioInfo.ampBandFull.cols;
-        audioInfo.ampBandFull.data = malloc(fullCount * sizeof(int));
-        if (fread(audioInfo.ampBandFull.data, sizeof(int), fullCount, bin) != fullCount) break;
+        if (fread(&audioData.ampBandFull.rows, sizeof(size_t), 1, bin) != 1) break;
+        if (fread(&audioData.ampBandFull.cols, sizeof(size_t), 1, bin) != 1) break;
+        size_t fullCount = audioData.ampBandFull.rows * audioData.ampBandFull.cols;
+        audioData.ampBandFull.data = malloc(fullCount * sizeof(int));
+        if (fread(audioData.ampBandFull.data, sizeof(int), fullCount, bin) != fullCount) break;
 
-        audioInfo.ampBandFilter2.data = NULL;
-        audioInfo.ampBandFilter2.rows = 0;
-        audioInfo.ampBandFilter2.cols = 0;
+        audioData.ampBandFilter2.data = NULL;
+        audioData.ampBandFilter2.rows = 0;
+        audioData.ampBandFilter2.cols = 0;
 
-        appentToCat(&catalogue, audioInfo);
-        addToHashTable(audioInfo, *hashIndex);
+        appentToCat(&catalogue, audioData);
+        addToHashTable(audioData, *hashIndex);
 
-        if (audioInfo.audioId > maxId) maxId = audioInfo.audioId;
+        if (audioData.audioId > maxId) maxId = audioData.audioId;
     }
 
     fclose(bin);
@@ -205,10 +251,10 @@ uint16_t readLE16(const unsigned char* b)
     return (uint16_t)(b[0] | (b[1] << 8));
 }
 
-wavInfo_s wavDecoder(FILE* wavFile)
+audioInfo_s wavDecoder(FILE* wavFile)
 {
-    wavInfo_s wavInfo;
-    memset(&wavInfo, 0, sizeof(wavInfo));
+    audioInfo_s audioInfo;
+    memset(&audioInfo, 0, sizeof(audioInfo));
 
     unsigned char header[12];
     if (fread(header, 1, 12, wavFile) != 12 ||
@@ -222,13 +268,14 @@ wavInfo_s wavDecoder(FILE* wavFile)
     int haveFmt = 0;
     int haveData = 0;
     unsigned char chunkHeader[8];
+    uint32_t chunkSize;
 
     // walk chunks until we've found both fmt and data (or hit EOF)
     while (fread(chunkHeader, 1, 8, wavFile) == 8)
     {
         char chunkId[5] = {0};
         memcpy(chunkId, chunkHeader, 4);
-        uint32_t chunkSize = readLE32(chunkHeader + 4);
+        chunkSize = readLE32(chunkHeader + 4);
 
         if (memcmp(chunkId, "fmt ", 4) == 0)
         {
@@ -244,9 +291,8 @@ wavInfo_s wavDecoder(FILE* wavFile)
                 printf("only uncompressed PCM wav is supported (got format %u)\n", audioFormat);
                 exit(1);
             }
-            wavInfo.channels   = readLE16(fmtBuf + 2);
-            wavInfo.sampleRate = readLE32(fmtBuf + 4);
-            wavInfo.byteRate   = readLE32(fmtBuf + 8);
+            audioInfo.channels   = readLE16(fmtBuf + 2);
+            audioInfo.sampleRate = readLE32(fmtBuf + 4);
             uint16_t bitsPerSample = readLE16(fmtBuf + 14);
             if (bitsPerSample != 16)
             {
@@ -262,16 +308,15 @@ wavInfo_s wavDecoder(FILE* wavFile)
         }
         else if (memcmp(chunkId, "data", 4) == 0)
         {
-            wavInfo.dataSize = chunkSize;
-            wavInfo.samples = malloc(chunkSize); // chunkSize bytes; sample count derived below
-            if (wavInfo.samples == NULL)
+            audioInfo.samples = malloc(chunkSize); // chunkSize bytes; sample count derived below
+            if (audioInfo.samples == NULL)
             {
-                printf("malloc failed for %u bytes of sample data\n", chunkSize);
+                printf("malloc failed for %ui bytes of sample data\n", chunkSize);
                 exit(1);
             }
-            if (fread(wavInfo.samples, 1, chunkSize, wavFile) != chunkSize)
+            if (fread(audioInfo.samples, 1, chunkSize, wavFile) != chunkSize)
             {
-                printf("failed to read expected %u bytes of sample data\n", chunkSize);
+                printf("failed to read expected %ui bytes of sample data\n", chunkSize);
                 exit(1);
             }
             haveData = 1;
@@ -296,25 +341,25 @@ wavInfo_s wavDecoder(FILE* wavFile)
         exit(1);
     }
 
-    wavInfo.sampleCount = wavInfo.dataSize / sizeof(int16_t); // total samples across all channels
-    wavInfo.duration = (float)wavInfo.dataSize / (float)wavInfo.byteRate; // seconds
+    audioInfo.sampleCount = chunkSize / sizeof(float); // total samples across all channels
+    audioInfo.duration = (float)audioInfo.sampleCount / (float)audioInfo.sampleRate; // seconds
 
-    return wavInfo;
+    return audioInfo;
 }
 
 
 
-int shortFourier(const wavInfo_s*, float*, size_t, size_t);
+int shortFourier(const audioInfo_s*, float*, size_t, size_t);
 int convertToNotes(float, float*, size_t, int*);
 int checkForSameFreq(int*, int*, size_t,  bool*); // matches the frequency indices in c with that of c-1
 int ascendingOrder(int*, size_t, bool*);
 
 
-ampBand_s fullAmpBand(const wavInfo_s* wavInfo)
+ampBand_s fullAmpBand(const audioInfo_s* audioInfo)
 {
     printf("0   ");
     ampBand_s ampBand;
-    ampBand.cols = (size_t)((wavInfo->duration + SHORT_TIME_PERIOD - 1) / SHORT_TIME_PERIOD);
+    ampBand.cols = (size_t)((audioInfo->duration + SHORT_TIME_PERIOD - 1) / SHORT_TIME_PERIOD);
     ampBand.rows = NUMBER_OF_TOP_FREQUENCIES; //not be remain a compile const maybe
     ampBand.data = malloc((ampBand.cols*ampBand.rows)*sizeof(*ampBand.data));
     float freq[ampBand.rows];
@@ -323,7 +368,7 @@ ampBand_s fullAmpBand(const wavInfo_s* wavInfo)
     printf("1   ");
     for (size_t c = 0; c < ampBand.cols; c++)
     {
-        shortFourier(wavInfo, freq, ampBand.rows, c);
+        shortFourier(audioInfo, freq, ampBand.rows, c);
         printf("stft   ");
         convertToNotes(BASE_FREQUENCY, freq, ampBand.rows, (ampBand.data + c*ampBand.rows));
         printf("convet   ");
@@ -347,12 +392,12 @@ ampBand_s fullAmpBand(const wavInfo_s* wavInfo)
     return ampBand;
 }
 //writes the top 'numOfTopFreq' frequencies (not their amplitudes just the frequency in hz)
-int shortFourier(const wavInfo_s* wavInfo, float* pWrite, size_t numOfTopFreq, size_t col)
+int shortFourier(const audioInfo_s* audioInfo, float* pWrite, size_t numOfTopFreq, size_t col)
 {
     float temp[2][numOfTopFreq]; //first col is freq
     memset(temp, 0, sizeof(temp));
-    size_t totalSamples = (size_t)(wavInfo->sampleRate*SHORT_TIME_PERIOD);
-    size_t windowStart = (size_t)(col*SHORT_TIME_PERIOD*wavInfo->sampleRate);
+    size_t totalSamples = (size_t)(audioInfo->sampleRate*SHORT_TIME_PERIOD);
+    size_t windowStart = (size_t)(col*SHORT_TIME_PERIOD*audioInfo->sampleRate);
 
     for (float freq = BASE_FREQUENCY; freq < MAX_FREQ; freq += 1 / SHORT_TIME_PERIOD)
     {
@@ -360,15 +405,15 @@ int shortFourier(const wavInfo_s* wavInfo, float* pWrite, size_t numOfTopFreq, s
         float x = 0;
         float y = 0;
 
-        float delta = (2*M_PI*freq)/wavInfo->sampleRate; //increase per sample
+        float delta = (2*M_PI*freq)/audioInfo->sampleRate; //increase per sample
         float deltaSin = sinf(delta);
         float deltaCos = cosf(delta);
         float currSin = 0;
         float currCos = 1;
         for (size_t i = 0; i < totalSamples; i++)
         {
-            x += wavInfo->samples[windowStart + i]*currSin;
-            y += wavInfo->samples[windowStart + i]*currCos;
+            x += audioInfo->samples[windowStart + i]*currSin;
+            y += audioInfo->samples[windowStart + i]*currCos;
             float sinTemp = currSin;
             currSin = currSin*deltaCos + currCos*deltaSin;
             currCos = currCos*deltaCos - sinTemp*deltaSin;
@@ -486,22 +531,22 @@ ampBand_s clubAmpBand(ampBand_s ampBandFull)
 
 int appendToHash(size_t, size_t, size_t, size_t, hashIndex_s);
 
-int addToHashTable(audioInfo_s audioInfo,  hashIndex_s hashIndex)
+int addToHashTable(audioData_s audioData,  hashIndex_s hashIndex)
 {
-    for (size_t r = 0; r < audioInfo.ampBandclubbed.rows; r++)
+    for (size_t r = 0; r < audioData.ampBandclubbed.rows; r++)
     {
-        for (size_t c = 0; c < audioInfo.ampBandclubbed.cols - HASH_INTERVAL + 1; c++)
+        for (size_t c = 0; c < audioData.ampBandclubbed.cols - HASH_INTERVAL + 1; c++)
         {
             size_t hashValue = 0;
-            if (audioInfo.ampBandclubbed.data[c*audioInfo.ampBandclubbed.rows + r] == 0)
+            if (audioData.ampBandclubbed.data[c*audioData.ampBandclubbed.rows + r] == 0)
             {
                 break;
             }
             for (size_t i = 0; i < HASH_INTERVAL; i++)
             {
-                hashValue = hashValue*SCATTER + audioInfo.ampBandclubbed.data[(c + i)*audioInfo.ampBandclubbed.rows + r] + OFFSET;
+                hashValue = hashValue*SCATTER + audioData.ampBandclubbed.data[(c + i)*audioData.ampBandclubbed.rows + r] + OFFSET;
             }
-            appendToHash(audioInfo.audioId, r, c, hashValue, hashIndex);
+            appendToHash(audioData.audioId, r, c, hashValue, hashIndex);
         }
     }
 }
@@ -551,7 +596,7 @@ int hashClip(clipHashVals_s* clipHashVals, ampBand_s clubbedAmpBand)
     }
 }
 
-int addToDatabase(audioInfo_s audioInfo)
+int addToDatabase(audioData_s audioData)
 {
     FILE* bin = fopen("audio.txt", "ab");
         if (bin == NULL)
@@ -560,18 +605,18 @@ int addToDatabase(audioInfo_s audioInfo)
             return -1;
         }
 
-        fwrite(&audioInfo.audioId, sizeof(audioInfo.audioId), 1, bin);
-        fwrite(audioInfo.name, sizeof(char), sizeof(audioInfo.name), bin);
+        fwrite(&audioData.audioId, sizeof(audioData.audioId), 1, bin);
+        fwrite(audioData.name, sizeof(char), sizeof(audioData.name), bin);
 
-        fwrite(&audioInfo.ampBandclubbed.rows, sizeof(size_t), 1, bin);
-        fwrite(&audioInfo.ampBandclubbed.cols, sizeof(size_t), 1, bin);
-        fwrite(audioInfo.ampBandclubbed.data, sizeof(int),
-               audioInfo.ampBandclubbed.rows * audioInfo.ampBandclubbed.cols, bin);
+        fwrite(&audioData.ampBandclubbed.rows, sizeof(size_t), 1, bin);
+        fwrite(&audioData.ampBandclubbed.cols, sizeof(size_t), 1, bin);
+        fwrite(audioData.ampBandclubbed.data, sizeof(int),
+               audioData.ampBandclubbed.rows * audioData.ampBandclubbed.cols, bin);
 
-        fwrite(&audioInfo.ampBandFull.rows, sizeof(size_t), 1, bin);
-        fwrite(&audioInfo.ampBandFull.cols, sizeof(size_t), 1, bin);
-        fwrite(audioInfo.ampBandFull.data, sizeof(int),
-               audioInfo.ampBandFull.rows * audioInfo.ampBandFull.cols, bin);
+        fwrite(&audioData.ampBandFull.rows, sizeof(size_t), 1, bin);
+        fwrite(&audioData.ampBandFull.cols, sizeof(size_t), 1, bin);
+        fwrite(audioData.ampBandFull.data, sizeof(int),
+               audioData.ampBandFull.rows * audioData.ampBandFull.cols, bin);
 
         fclose(bin);
         return 0;
@@ -633,7 +678,7 @@ int filter1(audioSet_s* pWriteAudioId, hashIndex_s hashIndex, clipHashVals_s cli
 }
 
 
-int filter2(audioSet_s* audioSet, audioCat_s catalogue, audioInfo_s clipInfo)
+int filter2(audioSet_s* audioSet, audioCat_s catalogue, audioData_s clipInfo)
 {
     return 0;
 }
