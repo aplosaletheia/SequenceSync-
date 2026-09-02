@@ -100,6 +100,6 @@ typedef struct
     size_t count;
     size_t reserved;
     MA_SAMPLE_TYPE* data;
-} clipSamples_s
+} clipSamples_s;
 
 clipSamples_s startRecording(); //arg depends on miniaudio

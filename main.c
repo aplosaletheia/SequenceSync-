@@ -1,54 +1,46 @@
-#pragma once
-
+#include <Windows.h>
+#include <profileapi.h>
 #include <stdio.h>
-
-// Detect Windows
-#ifdef _WIN32
-    #include <windows.h>
-    #define custom_sleep(ms) Sleep(ms)
-// Detect Linux/macOS
-#else
-    #include <unistd.h>
-    #define custom_sleep(ms) usleep((ms) * 1000)
-#endif
-
-#include <stdio.h>
-#define MINIAUDIO_IMPLEMENTATION
-#include "main.h"
-#include "config.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <winnt.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
-
+#define MINIAUDIO_IMPLEMENTATION
+#include "main.h"
+#include "config.h"
 
 
 int main()
 {
+    LARGE_INTEGER clockFreq, start, end;
+    QueryPerformanceFrequency(&clockFreq);
+    printf("clock frequency - %llihz\n", clockFreq.QuadPart);
+
     input_s input = getInput();
-    
+
     audioInfo_s audioInfo;
-
-    printf("breaking down the audio...");
-    audioInfo.ampBandFull = fullAmpBand(&wavInfo); //dont remember why I passed the address
-    audioInfo.ampBandclubbed = clubAmpBand(audioInfo.ampBandFull);
-    printf("done\n");
-
 
     //add to database
     if (input.command == 'a')
     {
-        printf("decoding .wav file...\n");
-        wavInfo_s wavInfo = wavDecoder(input.wavFile); //the samples will be in heap
+        printf("decoding .wav file...");
+        QueryPerformanceCounter(&start);
+        wavInfo_s wavInfo = wavDecoder(input.wavFile); //will alloc memory on heap
+        QueryPerformanceCounter(&end);
+        printf("done (%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
 
         strcpy(audioInfo.name, input.name);
-        
-        printf("adding to data base...\n");
+
+        printf("adding to database...");
+        QueryPerformanceCounter(&start);
         if (addToDatabase(audioInfo) == 0)
         {
-            printf("sucessfully added to database (audio.txt)\n");
+            printf("done");
         }
+        QueryPerformanceCounter(&end);
+        printf("(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1) / clockFreq.QuadPart);
     }
     //give recommendations
     else if (input.command == 'r')
@@ -59,22 +51,23 @@ int main()
         printf("booting up database...\n");
         audioCat_s catalogue = bootDatabase(&hashIndex);
 
-        //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user 
-        printf("recording begins in")
+        //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user
+        printf("recording begins in");
         for(size_t i = 3; i > 0; i--)
         {
             printf("...%zus", i);
-            custom_sleep(1000);
+            Sleep(1000);
         }
-        printf("\n**To stop recording, enter 'STOP' in the terminal**\n");
-        
+        printf("\n**To stop recording, enter 'e' in the terminal**\n");
+
         //run this on another thread
         //use the main thread to keep access to the terminal for stop recording command
         startRecording();
-        
+
         clipHashVals_s clipHashVals;
         hashClip(&clipHashVals, audioInfo.ampBandclubbed);
         audioSet_s filteredAudios = {0, NULL};
+
         filter1(&filteredAudios, hashIndex, clipHashVals); //passing address so that i can change count..This will need to access the database
         filter2(&filteredAudios, catalogue, audioInfo);
         for (size_t i = 0; i < filteredAudios.numIds; i++)
@@ -172,12 +165,12 @@ input_s getInput()
     input_s result;
     printf("a - add to database, r - get recommendations\n");
     result.command = getchar();
-    while (getchar() != '\n') 
+    while (getchar() != '\n')
     {}
     if (result.command == 'r')
     {
         result.wavFile = NULL;
-        
+
     }
     else if(result.command == 'a')
     {

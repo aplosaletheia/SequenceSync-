@@ -4,6 +4,7 @@ Instead of taking a wav input for r (recommendation) mode, the clip will be take
 
 Add to database will still be via wav files or maybe .mp3.
 
+Adding check for same songs in database via name comparision.
 
 DFT will be replaced by a hand written FFT algorithm.
 
