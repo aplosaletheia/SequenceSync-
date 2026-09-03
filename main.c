@@ -166,11 +166,11 @@ audioCat_s bootDatabase(hashIndex_s* hashIndex)
     catalogue.audioDatas = malloc(catalogue.reserved*sizeof(*catalogue.audioDatas));
 
     size_t maxId = 0;
-    FILE* bin = fopen("audio.txt", "rb");
+    FILE* bin = fopen("database.bin", "rb");
     if (bin == NULL)
     {
         printf("no data file, making a file in the same folder as this...\n");
-            bin = fopen("audio.txt", "wb");
+            bin = fopen("database.bin", "wb");
             if (bin != NULL)
             {
                 fclose(bin);
@@ -620,7 +620,7 @@ int hashClip(clipHashVals_s* clipHashVals, ampBand_s clubbedAmpBand)
 
 int addToDatabase(audioData_s audioData)
 {
-    FILE* bin = fopen("audio.txt", "ab");
+    FILE* bin = fopen("database.bin", "ab");
         if (bin == NULL)
         {
             printf("failed to open database file\n");
