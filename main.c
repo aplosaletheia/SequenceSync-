@@ -11,10 +11,12 @@
 #include "config.h"
 
 clipSamples_s clipSamples = {0, 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000, 0};
+audioInfo_s clipInfo = {MA_CHANNELS, MA_SAMPLE_RATE, 0, 0, 0};
+
 
 int appendToClipSamples(clipSamples_s* clipSamples, MA_SAMPLE_TYPE* vals, size_t numVals)
 {
-    if (clipSamples->reserved + MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000 <= clipSamples->count)
+    if (clipSamples->reserved + numVals <= clipSamples->count)
     {
         clipSamples->reserved += 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000;
         clipSamples->data = realloc(clipSamples->data, clipSamples->reserved*sizeof(*clipSamples->data));
@@ -63,24 +65,23 @@ int main()
         printf("booting up database...\n");
         audioCat_s catalogue = bootDatabase(&hashIndex);
 
-        audioInfo_s audioInfo = {MA_CHANNELS, MA_SAMPLE_RATE, 0, 0, 0};
         
         //setting up audio capture device
         ma_device audioCaptureDevice;
         clipSamples.data = realloc(clipSamples.data, clipSamples.reserved*sizeof(*clipSamples.data));
-        audioInfo.samples = clipSamples.data;
+        clipInfo.samples = clipSamples.data;
         initAudioCaptureDevice(&audioCaptureDevice);
         
         //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user
         printf("\n**To stop recording, enter 'e' in the terminal**\n");
-        printf("recording begins in");
+        printf("recording begins in...");
         for(size_t i = 3; i > 0; i--)
         {
-            printf("...%zus", i);
+            printf("%zus...", i);
             Sleep(1000);
         }
         ma_device_start(&audioCaptureDevice);
-        printf("\nrecording...");
+        printf("recording...\n");
         if (getchar() == 'e')
         {
             ma_device_uninit(&audioCaptureDevice);
@@ -88,7 +89,7 @@ int main()
         printf("done\n");
 
         audioData_s clipData;
-        clipData.ampBandFull = fullAmpBand(&audioInfo);
+        clipData.ampBandFull = fullAmpBand(&clipInfo);
         clipData.ampBandclubbed = clubAmpBand(clipData.ampBandFull);
         
         clipHashVals_s clipHashVals;
@@ -113,6 +114,8 @@ int main()
 void audioReceiverCallback(ma_device* pDevice, void* pOutput, const void* pInput /*data from the capture card*/, ma_uint32 frameCount)
 {
     appendToClipSamples(&clipSamples, (float*)pInput, frameCount);
+    clipInfo.sampleCount += frameCount;
+    clipInfo.duration = (float)clipInfo.sampleCount / clipInfo.sampleRate;
 }
 
 
