@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -43,10 +44,17 @@ int main()
         QueryPerformanceCounter(&start);
         audioInfo_s audioInfo = wavDecoder(input.wavFile); //will alloc memory on heap
         QueryPerformanceCounter(&end);
-        printf("done (%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
+        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
 
         strcpy(audioData.name, input.name);
 
+        printf("processing audio data...");
+        QueryPerformanceCounter(&start);
+        audioData.ampBandFull = fullAmpBand(&audioInfo);
+        audioData.ampBandclubbed = clubAmpBand(audioData.ampBandFull);
+        QueryPerformanceCounter(&end);
+        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1) / clockFreq.QuadPart);
+        
         printf("adding to database...");
         QueryPerformanceCounter(&start);
         if (addToDatabase(audioData) == 0)
@@ -89,8 +97,12 @@ int main()
         printf("done\n");
 
         audioData_s clipData;
+
+        QueryPerformanceCounter(&start);
         clipData.ampBandFull = fullAmpBand(&clipInfo);
         clipData.ampBandclubbed = clubAmpBand(clipData.ampBandFull);
+        QueryPerformanceCounter(&end);
+        printf("(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1) / clockFreq.QuadPart);
         
         clipHashVals_s clipHashVals;
         hashClip(&clipHashVals, clipData.ampBandclubbed);
@@ -279,7 +291,9 @@ audioInfo_s wavDecoder(FILE* wavFile)
         char chunkId[5] = {0};
         memcpy(chunkId, chunkHeader, 4);
         chunkSize = readLE32(chunkHeader + 4);
-
+        audioInfo.sampleCount = chunkSize / sizeof(int16_t); // total samples across all channels
+        audioInfo.duration = (float)audioInfo.sampleCount / (float)audioInfo.sampleRate; // seconds
+        
         if (memcmp(chunkId, "fmt ", 4) == 0)
         {
             unsigned char fmtBuf[16];
@@ -311,17 +325,24 @@ audioInfo_s wavDecoder(FILE* wavFile)
         }
         else if (memcmp(chunkId, "data", 4) == 0)
         {
-            audioInfo.samples = malloc(chunkSize); // chunkSize bytes; sample count derived below
+            
+            audioInfo.samples = malloc(audioInfo.sampleCount*sizeof(*audioInfo.samples)); // chunkSize is int16_t elements in byte
+            int16_t* temp = malloc(chunkSize);
             if (audioInfo.samples == NULL)
             {
                 printf("malloc failed for %ui bytes of sample data\n", chunkSize);
                 exit(1);
             }
-            if (fread(audioInfo.samples, 1, chunkSize, wavFile) != chunkSize)
+            if (fread(temp, 1, chunkSize, wavFile) != chunkSize)
             {
                 printf("failed to read expected %ui bytes of sample data\n", chunkSize);
                 exit(1);
             }
+            for (size_t i = 0; i + 1 < audioInfo.sampleCount; i += 2)
+            {
+                audioInfo.samples[i/2] = (float)(temp[i] + temp[i+1]) / 2;
+            }
+            free(temp);
             haveData = 1;
             break; // we have what we need; stop walking chunks
         }
@@ -344,8 +365,6 @@ audioInfo_s wavDecoder(FILE* wavFile)
         exit(1);
     }
 
-    audioInfo.sampleCount = chunkSize / sizeof(float); // total samples across all channels
-    audioInfo.duration = (float)audioInfo.sampleCount / (float)audioInfo.sampleRate; // seconds
 
     return audioInfo;
 }
@@ -360,28 +379,28 @@ int ascendingOrder(int*, size_t, bool*);
 
 ampBand_s fullAmpBand(const audioInfo_s* audioInfo)
 {
-    printf("0   ");
+    //printf("0   ");
     ampBand_s ampBand;
-    ampBand.cols = (size_t)((audioInfo->duration + SHORT_TIME_PERIOD - 1) / SHORT_TIME_PERIOD);
+    ampBand.cols = (size_t)((audioInfo->duration + SHORT_TIME_PERIOD - 0.01) / SHORT_TIME_PERIOD);
     ampBand.rows = NUMBER_OF_TOP_FREQUENCIES; //not be remain a compile const maybe
     ampBand.data = malloc((ampBand.cols*ampBand.rows)*sizeof(*ampBand.data));
     float freq[ampBand.rows];
     bool commonIndicesFlags[ampBand.rows];
     memset(commonIndicesFlags, 0, ampBand.rows*sizeof(*commonIndicesFlags));
-    printf("1   ");
+    //printf("1   ");
     for (size_t c = 0; c < ampBand.cols; c++)
     {
         shortFourier(audioInfo, freq, ampBand.rows, c);
-        printf("stft   ");
+        //printf("stft   ");
         convertToNotes(BASE_FREQUENCY, freq, ampBand.rows, (ampBand.data + c*ampBand.rows));
-        printf("convet   ");
+        //printf("convet   ");
         if (c > 0)
         {
             checkForSameFreq((ampBand.data + (c)*ampBand.rows), (ampBand.data + (c-1)*ampBand.rows), ampBand.rows, commonIndicesFlags);
         }
-        printf("same check   ");
+        //printf("same check   ");
         ascendingOrder(ampBand.data + c*ampBand.rows, ampBand.rows, commonIndicesFlags);
-        printf("sorting   ");
+        //printf("sorting   ");
         if (c > 0)
         {
             for (size_t i = 0; i < ampBand.rows; i++)
@@ -389,9 +408,9 @@ ampBand_s fullAmpBand(const audioInfo_s* audioInfo)
                 ampBand.data[(c-1)*ampBand.rows + i] = ampBand.data[c*ampBand.rows + i] - ampBand.data[(c-1)*ampBand.rows + i];
             }
         }
-        printf("difference   %zu\n", c);
+        //printf("difference   %zu\n", c);
     }
-    printf("stage 1 done...");
+    //printf("stage 1 done...");
     return ampBand;
 }
 //writes the top 'numOfTopFreq' frequencies (not their amplitudes just the frequency in hz)
