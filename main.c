@@ -11,7 +11,7 @@
 #include "main.h"
 #include "config.h"
 
-clipSamples_s clipSamples = {0, 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000, 0};
+clipSamples_s clipSamples = {0, 5*MA_SAMPLE_RATE*(SHORT_TIME_PERIOD_MS/1000), 0};
 audioInfo_s clipInfo = {MA_CHANNELS, MA_SAMPLE_RATE, 0, 0, 0};
 
 
@@ -19,7 +19,7 @@ int appendToClipSamples(clipSamples_s* clipSamples, MA_SAMPLE_TYPE* vals, size_t
 {
     if (clipSamples->reserved + numVals <= clipSamples->count)
     {
-        clipSamples->reserved += 5*MA_SAMPLE_RATE*SHORT_TIME_PERIOD_MS/1000;
+        clipSamples->reserved += 5*MA_SAMPLE_RATE*(SHORT_TIME_PERIOD_MS/1000);
         clipSamples->data = realloc(clipSamples->data, clipSamples->reserved*sizeof(*clipSamples->data));
     }
     memcpy(clipSamples->data, vals, numVals);
@@ -44,7 +44,7 @@ int main()
         QueryPerformanceCounter(&start);
         audioInfo_s audioInfo = wavDecoder(input.wavFile); //will alloc memory on heap
         QueryPerformanceCounter(&end);
-        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
+        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart) * 1000 + clockFreq.QuadPart - 1)/ clockFreq.QuadPart);
 
         strcpy(audioData.name, input.name);
 
@@ -53,7 +53,7 @@ int main()
         audioData.ampBandFull = fullAmpBand(&audioInfo);
         audioData.ampBandclubbed = clubAmpBand(audioData.ampBandFull);
         QueryPerformanceCounter(&end);
-        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart)*1000 + clockFreq.QuadPart - 1) / clockFreq.QuadPart);
+        printf("done(%llims)\n", ((end.QuadPart - start.QuadPart) * 1000 + clockFreq.QuadPart - 1) / clockFreq.QuadPart);
         
         printf("adding to database...");
         QueryPerformanceCounter(&start);
@@ -81,7 +81,7 @@ int main()
         initAudioCaptureDevice(&audioCaptureDevice);
         
         //hmm, 1 loop not guaranteed to be only 1 sec but in this case its better this way since even if there is some lag, no sudden jumps whout informing user
-        printf("\n**To stop recording, enter 'e' in the terminal**\n");
+        printf("**To stop recording, enter 'e' in the terminal**\n");
         printf("recording begins in...");
         for(size_t i = 3; i > 0; i--)
         {
@@ -94,7 +94,7 @@ int main()
         {
             ma_device_uninit(&audioCaptureDevice);
         }
-        printf("done\n");
+        printf("processing audio...");
 
         audioData_s clipData;
 
@@ -177,7 +177,7 @@ audioCat_s bootDatabase(hashIndex_s* hashIndex)
             }
             else
             {
-                printf("couldnt successfully make and open file..");
+                printf("failed to make and open file..");
             }
             return catalogue;
     }

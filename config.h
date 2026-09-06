@@ -1,7 +1,7 @@
 #define NUM_BUCKETS 100
 #define SHORT_TIME_PERIOD 0.2f // sec
 #define SHORT_TIME_PERIOD_MS 200
-#define NUMBER_OF_TOP_FREQUENCIES 10
+#define NUMBER_OF_TOP_FREQUENCIES 5
 #define BASE_FREQUENCY 100.f //hz
 #define MAX_FREQ 10000
 #define HASH_INTERVAL 5  //always smaller than the clip
