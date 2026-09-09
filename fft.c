@@ -21,8 +21,7 @@
  * 
  *  So yes the amplitude of every frequency in the lower half will be added from both sets and then /2.
  * 
- *  Since it could be any harmonic of the frequency, we will only look at the 2nd half in the first half of the 
- *  frequencies (reference is the original frequency spectrum). Assuming that the signal cannot be of a frequency
- *  higher than some set frequency, this will guarantee that the harmonic we are measuring is 1 above the frequency.
+ *  The remainder in the 1st bin will be the amplitude of the half + 1 bin, so for the mth bin it will
+ *  be half (n/2) + m th bin.
  *  
  */
