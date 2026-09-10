@@ -1,4 +1,12 @@
+/*
+ * Currenly using floats (since the performance should be the same according to claude/gemini)
+ * The story changes for smaller microcontrollers (not my concern right now)
+ * 
+ */
+
+
 #include <Windows.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -125,7 +133,12 @@ int main()
 //called from a different thread whenevr sufficent data conditions are met
 void audioReceiverCallback(ma_device* pDevice, void* pOutput, const void* pInput /*data from the capture card*/, ma_uint32 frameCount)
 {
-    appendToClipSamples(&clipSamples, (float*)pInput, frameCount);
+    float* mixChannel = malloc(frameCount*sizeof(float));
+    for (size_t i = 0; 2*i + 1 < frameCount*2; i++)
+    {
+        mixChannel[i] = (((float*)pInput)[2*i] + ((float*)pInput)[2*i + 1]) / 2; 
+    }
+    appendToClipSamples(&clipSamples, mixChannel, frameCount);
     clipInfo.sampleCount += frameCount;
     clipInfo.duration = (float)clipInfo.sampleCount / clipInfo.sampleRate;
 }
@@ -416,8 +429,8 @@ ampBand_s fullAmpBand(const audioInfo_s* audioInfo)
 //writes the top 'numOfTopFreq' frequencies (not their amplitudes just the frequency in hz)
 int shortFourier(const audioInfo_s* audioInfo, float* pWrite, size_t numOfTopFreq, size_t col)
 {
-    float temp[2][numOfTopFreq]; //first col is freq
-    memset(temp, 0, sizeof(temp));
+    float temp_amp[numOfTopFreq]; //first col is freq
+    memset(temp_amp, 0, sizeof(temp_amp));
     size_t totalSamples = (size_t)(audioInfo->sampleRate*SHORT_TIME_PERIOD);
     size_t windowStart = (size_t)(col*SHORT_TIME_PERIOD*audioInfo->sampleRate);
 
@@ -443,22 +456,18 @@ int shortFourier(const audioInfo_s* audioInfo, float* pWrite, size_t numOfTopFre
         amp = sqrtf(x*x + y*y) / freq;
         for (size_t i = 0; i < numOfTopFreq; i++)
         {
-            if(amp > temp[1][i])
+            if(amp > temp_amp[i])
             {
                 for (size_t j = numOfTopFreq - 1; j > i; j += -1)
                 {
-                    temp[1][j] = temp[1][j-1];
-                    temp[0][j] = temp[0][j-1];
+                    temp_amp[j] = temp_amp[j-1];
+                    pWrite[j] = pWrite[j-1];
                 }
-                temp[1][i] = amp;
-                temp[0][i] = freq;
+                temp_amp[i] = amp;
+                pWrite[i] = freq;
                 break;
             }
         }
-    }
-    for (size_t i = 0; i < numOfTopFreq; i++)
-    {
-        pWrite[i] = temp[0][i];
     }
 
     return 0;

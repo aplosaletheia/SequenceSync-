@@ -7,6 +7,7 @@ Add to database will still be via wav files or maybe .mp3.
 Adding check for same songs in database via name comparision.
 
 DFT will be replaced by a hand written FFT algorithm.
+  Will make anothr version after I make a working version 0 that uses CUDA (if needed)
 
 
 Instead of the current change determining system (always calculates the minimum change) the new system will check for variations in frequencies with similar timbers (same source of note).

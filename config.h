@@ -2,6 +2,7 @@
 #define SHORT_TIME_PERIOD 0.2f // sec
 #define SHORT_TIME_PERIOD_MS 200
 #define NUMBER_OF_TOP_FREQUENCIES 5
+#define FREQ_RESOLUTION 1 //hz
 #define BASE_FREQUENCY 100.f //hz
 #define MAX_FREQ 10000
 #define HASH_INTERVAL 5  //always smaller than the clip
@@ -14,3 +15,6 @@
 #define MA_SAMPLE_RATE 44100 //hz
 #define MA_CHANNELS 2
 #define MA_SAMPLE_TYPE float
+
+//fft
+#define DFT_SET_SIZE 10 //the sample size on which the dft wil be done

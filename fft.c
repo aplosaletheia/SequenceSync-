@@ -24,4 +24,60 @@
  *  The remainder in the 1st bin will be the amplitude of the half + 1 bin, so for the mth bin it will
  *  be half (n/2) + m th bin.
  *  
+ *  After some though I reacheched the conclusion that dividing into 2 every step is the best for us. 
+ *  **TRUST ME I UNDERSTOOD THE WHOLE THING** [no I didn't, not cleanly, but got some sort of mathematical clarity 
+ *  to some degree after talking to claude:)..It might be simple but I dont wanna think about it anymore since 
+ *  I have gotten suffecient conformation that 2 and 3 are the best (closest to e)]
+ * 
+ *  I will not be going down to 2 samples per set and will choose the sample size that uses the cpu cashe the most
+ *  efficiently and the overheads...idk the details yet so I'm keepinmg it parametric.
  */
+
+#include "main.h"
+#include "config.h"
+#include <stddef.h>
+#include <stdlib.h>
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+
+//will write the top NUMBER_OF_TOP_FREQUENCIES frequencies and their amplitudes 
+int fft(const audioInfo_s* audioInfo, float* pWrite, size_t numOfTopFreq, size_t col)
+{
+    /*reorderingSamples*/
+    float* temp = malloc(audioInfo->sampleCount*sizeof(temp));
+    for (size_t i = 0; i < audioInfo->sampleCount; i++)
+    {
+        
+    }
+
+    free(temp);
+
+    float* freqDomain = malloc(MAX_FREQ * FREQ_RESOLUTION *sizeof(freqDomain));
+    
+    for (size_t i = 0; (i+1)*DFT_SET_SIZE < audioInfo->sampleCount; i++) 
+    {
+        for (float freq = 1 / SHORT_TIME_PERIOD; freq < ((DFT_SET_SIZE / SHORT_TIME_PERIOD) / 2); freq += 1 / SHORT_TIME_PERIOD)
+        {
+            float amp = 0;
+            float x = 0;
+            float y = 0;
+    
+            float delta = (2*M_PI*freq)/audioInfo->sampleRate; //increase per sample
+            float deltaSin = sinf(delta);
+            float deltaCos = cosf(delta);
+            float currSin = 0;
+            float currCos = 1;
+            for (size_t j = 0; j < DFT_SET_SIZE; j++)
+            {
+                x += audioInfo->samples[i*DFT_SET_SIZE + j]*currSin;
+                y += audioInfo->samples[i*DFT_SET_SIZE + j]*currCos;
+                float sinTemp = currSin;
+                currSin = currSin*deltaCos + currCos*deltaSin;
+                currCos = currCos*deltaCos - sinTemp*deltaSin;
+            }
+            amp = sqrtf(x*x + y*y) / freq;
+            
+        }
+    }
+}
