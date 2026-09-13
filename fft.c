@@ -36,48 +36,95 @@
 #include "main.h"
 #include "config.h"
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
 
 
-//will write the top NUMBER_OF_TOP_FREQUENCIES frequencies and their amplitudes 
-int fft(const audioInfo_s* audioInfo, float* pWrite, size_t numOfTopFreq, size_t col)
+int reorder(float* data, size_t setSize)
 {
-    /*reorderingSamples*/
-    float* temp = malloc(audioInfo->sampleCount*sizeof(temp));
-    for (size_t i = 0; i < audioInfo->sampleCount; i++)
+    float temp[setSize/2]; // if this is a problem later then alloc on heap (DONT FORGET TO free())
+    for (size_t i = 0; i < setSize/2; i++)
     {
-        
+        data[i] = data[2*i];
+        temp[i] = data[2*i+1];
     }
+    memcpy((data + setSize/2), temp, sizeof(*&temp)); //if changed to heap then dont forget to change the arguments here
+}
 
-    free(temp);
 
-    float* freqDomain = malloc(MAX_FREQ * FREQ_RESOLUTION *sizeof(freqDomain));
+
+
+int main()
+{
+    int temp[10];
+    printf("%zu", sizeof(*&temp));
+}
+
+//will write the top NUMBER_OF_TOP_FREQUENCIES frequencies and their amplitudes
+int fft(const audioInfo_s audioInfo, float* pWrite, size_t numOfTopFreq, size_t col)
+{
+    //change the smaples pointer o that we go through the entile sample
+    /*
+     * reorderingSamples
+    */
+
+    size_t setSize = audioInfo.sampleRate*SHORT_TIME_PERIOD;
     
-    for (size_t i = 0; (i+1)*DFT_SET_SIZE < audioInfo->sampleCount; i++) 
+    for (; setSize > 2*DFT_SET_SIZE; setSize /= 2)
     {
-        for (float freq = 1 / SHORT_TIME_PERIOD; freq < ((DFT_SET_SIZE / SHORT_TIME_PERIOD) / 2); freq += 1 / SHORT_TIME_PERIOD)
+        for (size_t offset = 0; offset + setSize <= audioInfo.sampleRate*SHORT_TIME_PERIOD; offset += setSize) 
         {
-            float amp = 0;
+            reorder((audioInfo.samples + offset), setSize);
+        }
+    }
+    
+    float* dftData = malloc(((audioInfo.sampleRate*SHORT_TIME_PERIOD/setSize)*setSize/SHORT_TIME_PERIOD/2/*num of freqs per ST*/) * sizeof(*dftData));
+    float* temp = malloc(((audioInfo.sampleRate*SHORT_TIME_PERIOD/setSize)*setSize/SHORT_TIME_PERIOD/2/*num of freqs per ST*/) * sizeof(*dftData));
+    size_t a = 0; //the set number/index
+    size_t b = 0; //freq number/index
+    //dft
+    for (size_t i = 0; (i+1)*setSize < audioInfo.sampleRate*SHORT_TIME_PERIOD; i += setSize, a++/*a will be the numberical count of the number of sets*/)
+    {
+        for (float freq = 1 / SHORT_TIME_PERIOD; freq <= ((setSize / SHORT_TIME_PERIOD) / 2); freq += 1 / SHORT_TIME_PERIOD, b++)
+        {
             float x = 0;
             float y = 0;
     
-            float delta = (2*M_PI*freq)/audioInfo->sampleRate; //increase per sample
+            float delta = (2*M_PI*freq)/audioInfo.sampleRate; //increase per sample
             float deltaSin = sinf(delta);
             float deltaCos = cosf(delta);
             float currSin = 0;
             float currCos = 1;
-            for (size_t j = 0; j < DFT_SET_SIZE; j++)
+            for (size_t j = 0; j < setSize; j++)
             {
-                x += audioInfo->samples[i*DFT_SET_SIZE + j]*currSin;
-                y += audioInfo->samples[i*DFT_SET_SIZE + j]*currCos;
+                x += audioInfo.samples[i*setSize + j]*currSin;
+                y += audioInfo.samples[i*setSize + j]*currCos;
                 float sinTemp = currSin;
                 currSin = currSin*deltaCos + currCos*deltaSin;
                 currCos = currCos*deltaCos - sinTemp*deltaSin;
             }
-            amp = sqrtf(x*x + y*y) / freq;
-            
+            dftData[a + b] = sqrtf(x*x + y*y) / freq;
         }
     }
+
+    for (;a >= 1; a /= 2, b *= 2)
+    {
+        size_t offset = 0;
+        for (size_t j = 0; j < a; offset += 2*a, j++) // I tweaking and dont what to remove j
+        {
+            for (size_t i = 0; i < b; i++)
+            {
+                temp[offset + i] = (dftData[offset + i] + dftData[offset + a + i])/2;
+                temp[offset + a + i] = (dftData[offset + i] - dftData[offset + a + i])/2;
+            }
+        }
+        memcpy(dftData, temp, (a*b*sizeof(*dftData)));
+    }
+    free(temp);
+
+
+    free(dftData);
 }
